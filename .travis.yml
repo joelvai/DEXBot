@@ -28,6 +28,6 @@ deploy:
       secure: HMIXGYKJHnb6m/iXnnFnM2/NfDKHIxISU9/wwZpnVmLfi6vbnCSbK44ZdapVed3RluvAWTpW+2gfSrKAdi8RsXFqj6LWw/zTruFz/U80hmv14UyyEeP+MYQk3d1Yum0aHx4yEN8Y+0q4fgBOGTn4IgStWncNGPNQJ9SLKqqiU5RgDM3Xf0/Zi8BD84EVRdvziJPK12FEMsv45nOi3uSZmHhQd/KT3psaBtDbrUJ6YJDh84ZeM/F7jqL7TWd6AxhX3YRXIMNKcxXWrwatE/v++ITWjBEKADgmNIzBDGGLiMheYKI6h1Za0CPO6GrBHfi7/xQ/DR/vc90M+JYXOyr2SIX8gW4lKRJVDZ9Np6802XEnwY5GOzFhxVoYdplqvDXy4oioKCj7IoREw66LcHc4PqcjThKZxvqatz4Sc/GUUopLotwwZ0jeLHJ5nz/AzmeW1cqGWr0ucIbwai+6rdRnK7Wod40uv8IvfpdEAxcJm/FWae5yhgk6kIcSC0++yYOMw+Lkk6H14QboAymSfd1e2CKzGSISQD8Mp/vQGPNKGrD5K75oeD+t3ChstiLHepE9S9MrzKuS8tOCtshKht0f9aMcbpNu5XYPKXtzg53+P8j22f0S47oypdO/slHaFsmaSEaYch+cyAuMDHDmkaoAnrZoY1DVLkQoCkgLYqs9H3U=
     file:
       - dist/*.tar.gz
-    file_glob: false
+    file_glob: true
     on:
       tags: true
