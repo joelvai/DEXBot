@@ -49,6 +49,6 @@ deploy:
     prerelease: false
     force_update: true
     auth_token:
-      secure: ykE/XGkga+tHgZZNzY5jC4EoxLLI2FcxsDzF/bTqCiZj51xmJmMwjSm1QUOvLoIk
+      secure: gWZ2Z2oiSx2PBs30bkrYnLzUHhE5Bh8lzH2oprBVGkI+7SES9d7iP8U7dJ/yM9aV
     on:
       appveyor_repo_tag: true     # deploy on tag push only
