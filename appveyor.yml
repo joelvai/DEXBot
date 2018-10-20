@@ -8,7 +8,7 @@ environment:
     - PYTHON: "C:\\Python35-x64"
 
 #---------------------------------#
-#        build                    #
+#        Build                    #
 #---------------------------------#
 
 build: off
@@ -24,7 +24,6 @@ install:
 
 after_test:
   - make package
-  - '7z a DEXBot-cli-win64.zip %APPVEYOR_BUILD_FOLDER%\dist\DEXBot-cli.exe'
   - '7z a DEXBot-gui-win64.zip %APPVEYOR_BUILD_FOLDER%\dist\DEXBot-gui.exe'
 
 # @TODO: Run tests..
@@ -32,14 +31,11 @@ test_script:
   - "echo tests..."
 
 artifacts:
-  - path: DEXBot-cli-win64.zip
-    name: DEXBot-cli-win64.zip
-
   - path: DEXBot-gui-win64.zip
     name: DEXBot-gui-win64.zip
 
 #---------------------------------#
-#        deployment               #
+#        Deployment               #
 #---------------------------------#
 
 shallow_clone: false
@@ -55,3 +51,13 @@ deploy:
       secure: gWZ2Z2oiSx2PBs30bkrYnLzUHhE5Bh8lzH2oprBVGkI+7SES9d7iP8U7dJ/yM9aV
     on:
       appveyor_repo_tag: true     # deploy on tag push only
+
+#---------------------------------#
+#         Notifications           #
+#---------------------------------#
+
+notifications:
+  - provider: Slack
+    auth_token:
+      secure: G9OMj9l2s3+lX8cRiNXXhuQJpnnjcBc0cqP8gzkdKVWqGA8vBTOIPGxD/536VKpeBH/5dJFQWT+vmnGS+XciaCg4hh5s6hDpnvePq2+uEYE=
+    channel: '#ci'

@@ -1,152 +1,259 @@
-from dexbot.queue.idle_queue import idle_add
+import collections
+
 from dexbot.views.errors import gui_error
-from dexbot.strategies.staggered_orders import Strategy as StaggeredOrdersStrategy
 
-from bitshares.market import Market
-from bitshares.asset import AssetDoesNotExistsException
+from PyQt5 import QtWidgets
 
 
-class RelativeOrdersController:
+class StrategyController:
+    """ Parent controller for strategies that don't have a custom controller
+    """
 
-    def __init__(self, view, worker_controller, worker_data):
+    def __init__(self, view, configure, worker_controller, worker_data):
         self.view = view
+        self.configure = configure
         self.worker_controller = worker_controller
-        self.view.strategy_widget.relative_order_size_checkbox.toggled.connect(
-            self.onchange_relative_order_size_checkbox
+
+        self.set_values(configure, worker_data)
+
+    def validation_errors(self):
+        return []
+
+    def set_values(self, configure, worker_config):
+        for option in configure:
+            if worker_config and worker_config.get(option.key) is not None:
+                value = worker_config[option.key]
+            else:
+                value = option.default
+
+            element = self.elements.get(option.key)
+
+            if element is None:
+                continue
+
+            if option.type in ('int', 'float', 'string'):
+                element.setValue(value)
+            if option.type == 'bool':
+                if value:
+                    element.setChecked(True)
+                else:
+                    element.setChecked(False)
+            if option.type == 'choice':
+                # Fill the combobox
+                for tag, label in option.extra:
+                    element.addItem(label, tag)
+                # Set the value
+                index = element.findData(value)
+                element.setCurrentIndex(index)
+
+    @property
+    def values(self):
+        data = {}
+        for key, element in self.elements.items():
+            class_name = element.__class__.__name__
+            if class_name in ('QDoubleSpinBox', 'QSpinBox', 'QLineEdit', 'QSlider'):
+                data[key] = element.value()
+            elif class_name == 'QCheckBox':
+                data[key] = element.isChecked()
+            elif class_name == 'QComboBox':
+                data[key] = element.currentData()
+        return data
+
+    @property
+    def elements(self):
+        """ Use ConfigElements of the strategy to find the input elements
+        """
+        elements = {}
+        types = (
+            QtWidgets.QDoubleSpinBox,
+            QtWidgets.QSpinBox,
+            QtWidgets.QLineEdit,
+            QtWidgets.QCheckBox,
+            QtWidgets.QComboBox,
+            QtWidgets.QSlider
         )
 
-        if worker_data:
-            self.set_config_values(worker_data)
+        for option in self.configure:
+            element_name = ''.join([option.key, '_input'])
+            element = self.view.findChild(types, element_name)
+            if element is not None:
+                elements[option.key] = element
+        return elements
 
-    @gui_error
-    def onchange_relative_order_size_checkbox(self, checked):
+
+class RelativeOrdersController(StrategyController):
+
+    def __init__(self, view, configure, worker_controller, worker_data):
+        # Check if there is worker data. This prevents error when multiplying None type when creating worker.
+        if worker_data:
+            # QSlider uses (int) values and manual_offset is stored as (float) with 0.1 precision.
+            # This reverts it so QSlider can handle the number, when fetching from config.
+            worker_data['manual_offset'] = worker_data['manual_offset'] * 10
+
+        super().__init__(view, configure, worker_controller, worker_data)
+
+        self.view = view
+        self.configure = configure
+        self.worker_controller = worker_controller
+
+        # Refresh center price market label
+        self.onchange_asset_labels()
+
+        # Refresh center price market label every time the text changes is base or quote asset input fields
+        worker_controller.view.base_asset_input.textChanged.connect(self.onchange_asset_labels)
+        worker_controller.view.quote_asset_input.textChanged.connect(self.onchange_asset_labels)
+
+        widget = self.view.strategy_widget
+
+        # Event connecting
+        widget.relative_order_size_input.clicked.connect(self.onchange_relative_order_size_input)
+        widget.dynamic_spread_input.clicked.connect(self.onchange_dynamic_spread_input)
+        widget.center_price_dynamic_input.clicked.connect(self.onchange_center_price_dynamic_input)
+        widget.manual_offset_input.valueChanged.connect(self.onchange_manual_offset_input)
+        widget.reset_on_partial_fill_input.clicked.connect(self.onchange_reset_on_partial_fill_input)
+        widget.reset_on_price_change_input.clicked.connect(self.onchange_reset_on_price_change_input)
+        widget.custom_expiration_input.clicked.connect(self.onchange_custom_expiration_input)
+
+        # Trigger the onchange events once
+        self.onchange_relative_order_size_input(widget.relative_order_size_input.isChecked())
+        self.onchange_center_price_dynamic_input(widget.center_price_dynamic_input.isChecked())
+        self.onchange_dynamic_spread_input(widget.dynamic_spread_input.isChecked())
+        self.onchange_reset_on_partial_fill_input(widget.reset_on_partial_fill_input.isChecked())
+        self.onchange_reset_on_price_change_input(widget.reset_on_price_change_input.isChecked())
+        self.onchange_custom_expiration_input(widget.custom_expiration_input.isChecked())
+        self.onchange_manual_offset_input()
+
+    @property
+    def values(self):
+        # This turns the int value of manual_offset from QSlider to float with desired precision.
+        values = super().values
+        values['manual_offset'] = values['manual_offset'] / 10
+        return values
+
+    def onchange_manual_offset_input(self):
+        value = self.view.strategy_widget.manual_offset_input.value() / 10
+        text = "{}%".format(value)
+        self.view.strategy_widget.manual_offset_amount_label.setText(text)
+
+    def onchange_dynamic_spread_input(self, checked):
+        if checked:
+            self.view.strategy_widget.market_depth_amount_input.setDisabled(False)
+            self.view.strategy_widget.dynamic_spread_factor_input.setDisabled(False)
+            # Disable the spread field if dynamic spread in use
+            self.view.strategy_widget.spread_input.setDisabled(True)
+        else:
+            self.view.strategy_widget.market_depth_amount_input.setDisabled(True)
+            self.view.strategy_widget.dynamic_spread_factor_input.setDisabled(True)
+            # Enable spread field if dynamic not in use
+            self.view.strategy_widget.spread_input.setDisabled(False)
+
+    def onchange_relative_order_size_input(self, checked):
         if checked:
             self.order_size_input_to_relative()
         else:
             self.order_size_input_to_static()
 
-    @gui_error
+    def onchange_center_price_dynamic_input(self, checked):
+        if checked:
+            self.view.strategy_widget.center_price_input.setDisabled(True)
+            self.view.strategy_widget.center_price_depth_input.setDisabled(False)
+            self.view.strategy_widget.reset_on_price_change_input.setDisabled(False)
+
+            if self.view.strategy_widget.reset_on_price_change_input.isChecked():
+                self.view.strategy_widget.price_change_threshold_input.setDisabled(False)
+        else:
+            self.view.strategy_widget.center_price_input.setDisabled(False)
+            self.view.strategy_widget.center_price_depth_input.setDisabled(True)
+            self.view.strategy_widget.reset_on_price_change_input.setDisabled(True)
+            self.view.strategy_widget.price_change_threshold_input.setDisabled(True)
+
+    def onchange_reset_on_partial_fill_input(self, checked):
+        if checked:
+            self.view.strategy_widget.partial_fill_threshold_input.setDisabled(False)
+        else:
+            self.view.strategy_widget.partial_fill_threshold_input.setDisabled(True)
+
+    def onchange_reset_on_price_change_input(self, checked):
+        if checked and self.view.strategy_widget.center_price_dynamic_input.isChecked():
+            self.view.strategy_widget.price_change_threshold_input.setDisabled(False)
+        else:
+            self.view.strategy_widget.price_change_threshold_input.setDisabled(True)
+
+    def onchange_custom_expiration_input(self, checked):
+        if checked:
+            self.view.strategy_widget.expiration_time_input.setDisabled(False)
+        else:
+            self.view.strategy_widget.expiration_time_input.setDisabled(True)
+
+    def onchange_asset_labels(self):
+        base_symbol = self.worker_controller.view.base_asset_input.text()
+        quote_symbol = self.worker_controller.view.quote_asset_input.text()
+
+        if quote_symbol:
+            self.set_quote_asset_label(quote_symbol)
+        else:
+            self.set_quote_asset_label('')
+
+        if base_symbol and quote_symbol:
+            text = '{} / {}'.format(base_symbol, quote_symbol)
+            self.set_center_price_market_label(text)
+        else:
+            self.set_center_price_market_label('')
+
     def order_size_input_to_relative(self):
         self.view.strategy_widget.amount_input.setSuffix('%')
         self.view.strategy_widget.amount_input.setDecimals(2)
         self.view.strategy_widget.amount_input.setMaximum(100.00)
-        self.view.strategy_widget.amount_input.setMinimumWidth(151)
-        self.view.strategy_widget.amount_input.setValue(10.00)
+        self.view.strategy_widget.amount_input.setMinimumWidth(170)
 
-    @gui_error
     def order_size_input_to_static(self):
         self.view.strategy_widget.amount_input.setSuffix('')
         self.view.strategy_widget.amount_input.setDecimals(8)
         self.view.strategy_widget.amount_input.setMaximum(1000000000.000000)
-        self.view.strategy_widget.amount_input.setValue(0.000000)
 
-    @gui_error
-    def set_config_values(self, worker_data):
-        if worker_data.get('amount_relative', False):
-            self.order_size_input_to_relative()
-            self.view.strategy_widget.relative_order_size_checkbox.setChecked(True)
-        else:
-            self.order_size_input_to_static()
-            self.view.strategy_widget.relative_order_size_checkbox.setChecked(False)
+    def set_center_price_market_label(self, text):
+        self.view.strategy_widget.center_price_market_label.setText(text)
 
-        self.view.strategy_widget.amount_input.setValue(float(worker_data.get('amount', 0)))
-        self.view.strategy_widget.center_price_input.setValue(worker_data.get('center_price', 0))
-        self.view.strategy_widget.spread_input.setValue(worker_data.get('spread', 5))
-
-        if worker_data.get('center_price_dynamic', True):
-            self.view.strategy_widget.center_price_dynamic_checkbox.setChecked(True)
-        else:
-            self.view.strategy_widget.center_price_dynamic_checkbox.setChecked(False)
-            self.view.strategy_widget.center_price_input.setDisabled(False)
-
-        if worker_data.get('center_price_offset', True):
-            self.view.strategy_widget.center_price_offset_checkbox.setChecked(True)
-        else:
-            self.view.strategy_widget.center_price_offset_checkbox.setChecked(False)
+    def set_quote_asset_label(self, text):
+        self.view.strategy_widget.amount_input_asset_label.setText(text)
+        self.view.strategy_widget.center_price_depth_input_asset_label.setText(text)
+        self.view.strategy_widget.market_depth_amount_input_asset_label.setText(text)
 
     def validation_errors(self):
         error_texts = []
         if not self.view.strategy_widget.amount_input.value():
-            error_texts.append("Amount can't be 0")
+            error_texts.append("Order size can't be 0")
         if not self.view.strategy_widget.spread_input.value():
             error_texts.append("Spread can't be 0")
         return error_texts
 
-    @property
-    def values(self):
-        data = {
-            'amount': self.view.strategy_widget.amount_input.value(),
-            'amount_relative': self.view.strategy_widget.relative_order_size_checkbox.isChecked(),
-            'center_price': self.view.strategy_widget.center_price_input.value(),
-            'center_price_dynamic': self.view.strategy_widget.center_price_dynamic_checkbox.isChecked(),
-            'center_price_offset': self.view.strategy_widget.center_price_offset_checkbox.isChecked(),
-            'spread': self.view.strategy_widget.spread_input.value()
-        }
-        return data
 
+class StaggeredOrdersController(StrategyController):
 
-class StaggeredOrdersController:
-
-    def __init__(self, view, worker_controller, worker_data):
+    def __init__(self, view, configure, worker_controller, worker_data):
         self.view = view
+        self.configure = configure
         self.worker_controller = worker_controller
 
-        if worker_data:
-            self.set_config_values(worker_data)
+        if view:
+            if not self.view.strategy_widget.center_price_dynamic_input.isChecked():
+                self.view.strategy_widget.center_price_input.setDisabled(False)
 
-        worker_controller.view.base_asset_input.editTextChanged.connect(lambda: self.on_value_change())
-        worker_controller.view.quote_asset_input.textChanged.connect(lambda: self.on_value_change())
+        super().__init__(view, configure, worker_controller, worker_data)
+
         widget = self.view.strategy_widget
-        widget.amount_input.valueChanged.connect(lambda: self.on_value_change())
-        widget.spread_input.valueChanged.connect(lambda: self.on_value_change())
-        widget.increment_input.valueChanged.connect(lambda: self.on_value_change())
-        widget.lower_bound_input.valueChanged.connect(lambda: self.on_value_change())
-        widget.upper_bound_input.valueChanged.connect(lambda: self.on_value_change())
-        self.on_value_change()
 
-    @gui_error
-    def set_config_values(self, worker_data):
-        widget = self.view.strategy_widget
-        widget.amount_input.setValue(worker_data.get('amount', 0))
-        widget.increment_input.setValue(worker_data.get('increment', 4))
-        widget.spread_input.setValue(worker_data.get('spread', 6))
-        widget.lower_bound_input.setValue(worker_data.get('lower_bound', 0.000001))
-        widget.upper_bound_input.setValue(worker_data.get('upper_bound', 1000000))
+        # Event connecting
+        widget.center_price_dynamic_input.clicked.connect(self.onchange_center_price_dynamic_input)
 
-    @gui_error
-    def on_value_change(self):
-        base_asset = self.worker_controller.view.base_asset_input.currentText()
-        quote_asset = self.worker_controller.view.quote_asset_input.text()
-        try:
-            market = Market('{}:{}'.format(quote_asset, base_asset))
-        except AssetDoesNotExistsException:
-            idle_add(self.set_required_base, 'N/A')
-            idle_add(self.set_required_quote, 'N/A')
-            return
+        # Trigger the onchange events once
+        self.onchange_center_price_dynamic_input(widget.center_price_dynamic_input.isChecked())
 
-        amount = self.view.strategy_widget.amount_input.value()
-        spread = self.view.strategy_widget.spread_input.value() / 100
-        increment = self.view.strategy_widget.increment_input.value() / 100
-        lower_bound = self.view.strategy_widget.lower_bound_input.value()
-        upper_bound = self.view.strategy_widget.upper_bound_input.value()
-
-        if not (market or amount or spread or increment or lower_bound or upper_bound):
-            idle_add(self.set_required_base, 'N/A')
-            idle_add(self.set_required_quote, 'N/A')
-            return
-
-        strategy = StaggeredOrdersStrategy
-        result = strategy.get_required_assets(market, amount, spread, increment, lower_bound, upper_bound)
-        if not result:
-            idle_add(self.set_required_base, 'N/A')
-            idle_add(self.set_required_quote, 'N/A')
-            return
-
-        base, quote = result
-        text = '{:.8f} {}'.format(base, base_asset)
-        idle_add(self.set_required_base, text)
-        text = '{:.8f} {}'.format(quote, quote_asset)
-        idle_add(self.set_required_quote, text)
+    def onchange_center_price_dynamic_input(self, checked):
+        if checked:
+            self.view.strategy_widget.center_price_input.setDisabled(True)
+        else:
+            self.view.strategy_widget.center_price_input.setDisabled(False)
 
     def set_required_base(self, text):
         self.view.strategy_widget.required_base_text.setText(text)
@@ -156,8 +263,6 @@ class StaggeredOrdersController:
 
     def validation_errors(self):
         error_texts = []
-        if not self.view.strategy_widget.amount_input.value():
-            error_texts.append("Amount can't be 0")
         if not self.view.strategy_widget.spread_input.value():
             error_texts.append("Spread can't be 0")
         if not self.view.strategy_widget.increment_input.value():
@@ -165,14 +270,3 @@ class StaggeredOrdersController:
         if not self.view.strategy_widget.lower_bound_input.value():
             error_texts.append("Lower bound can't be 0")
         return error_texts
-
-    @property
-    def values(self):
-        data = {
-            'amount': self.view.strategy_widget.amount_input.value(),
-            'spread': self.view.strategy_widget.spread_input.value(),
-            'increment': self.view.strategy_widget.increment_input.value(),
-            'lower_bound': self.view.strategy_widget.lower_bound_input.value(),
-            'upper_bound': self.view.strategy_widget.upper_bound_input.value()
-        }
-        return data

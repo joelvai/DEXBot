@@ -6,8 +6,9 @@ import threading
 import copy
 
 import dexbot.errors as errors
-from dexbot.basestrategy import BaseStrategy
+from dexbot.strategies.base import StrategyBase
 
+from bitshares import BitShares
 from bitshares.notify import Notify
 from bitshares.instance import shared_bitshares_instance
 
@@ -85,9 +86,11 @@ class WorkerInfrastructure(threading.Thread):
 
     def update_notify(self):
         if not self.config['workers']:
-            log.critical("No workers to launch, exiting")
+            log.critical("No workers configured to launch, exiting")
             raise errors.NoWorkersAvailable()
-
+        if not self.workers:
+            log.critical("No workers actually running")
+            raise errors.NoWorkersAvailable()
         if self.notify:
             # Update the notification instance
             self.notify.reset_subscriptions(list(self.accounts), list(self.markets))
@@ -220,10 +223,14 @@ class WorkerInfrastructure(threading.Thread):
                 self.markets.remove(market)
 
     @staticmethod
-    def remove_offline_worker(config, worker_name):
+    def remove_offline_worker(config, worker_name, bitshares_instance):
         # Initialize the base strategy to get control over the data
-        strategy = BaseStrategy(config, worker_name)
+        strategy = StrategyBase(worker_name, config, bitshares_instance=bitshares_instance)
         strategy.purge()
+
+    @staticmethod
+    def remove_offline_worker_data(worker_name):
+        StrategyBase.purge_all_local_worker_data(worker_name)
 
     def do_next_tick(self, job):
         """ Add a callable to be executed on the next tick """

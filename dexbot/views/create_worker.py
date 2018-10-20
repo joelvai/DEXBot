@@ -1,5 +1,5 @@
 from .ui.create_worker_window_ui import Ui_Dialog
-from dexbot.controllers.create_worker_controller import CreateWorkerController
+from dexbot.controllers.worker_controller import WorkerController, UppercaseValidator
 
 from PyQt5 import QtWidgets
 
@@ -9,21 +9,26 @@ class CreateWorkerView(QtWidgets.QDialog, Ui_Dialog):
     def __init__(self, bitshares_instance):
         super().__init__()
         self.strategy_widget = None
-        controller = CreateWorkerController(self, bitshares_instance, 'add')
+        controller = WorkerController(self, bitshares_instance, 'add')
         self.controller = controller
 
         self.setupUi(self)
 
         # Todo: Using a model here would be more Qt like
-        # Populate the comboboxes
+        # Populate the combobox
         strategies = self.controller.strategies
         for strategy in strategies:
             self.strategy_input.addItem(strategies[strategy]['name'], strategy)
-        self.base_asset_input.addItems(self.controller.base_assets)
 
         # Generate a name for the worker
         self.worker_name = controller.get_unique_worker_name()
         self.worker_name_input.setText(self.worker_name)
+
+        # Force uppercase to the assets fields
+        validator = UppercaseValidator(self)
+        self.base_asset_input.setValidator(validator)
+        self.quote_asset_input.setValidator(validator)
+        self.fee_asset_input.setValidator(validator)
 
         # Set signals
         self.strategy_input.currentTextChanged.connect(lambda: controller.change_strategy_form())

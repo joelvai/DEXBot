@@ -5,6 +5,9 @@ import queue
 import uuid
 from appdirs import user_data_dir
 
+from . import helper
+from dexbot import APP_NAME, AUTHOR
+
 from sqlalchemy import create_engine, Column, String, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -12,21 +15,7 @@ from sqlalchemy.orm import sessionmaker
 Base = declarative_base()
 
 # For dexbot.sqlite file
-appname = "dexbot"
-appauthor = "Codaone Oy"
 storageDatabase = "dexbot.sqlite"
-
-
-def mkdir_p(d):
-    if os.path.isdir(d):
-        return
-    else:
-        try:
-            os.makedirs(d)
-        except FileExistsError:
-            return
-        except OSError:
-            raise
 
 
 class Config(Base):
@@ -63,6 +52,7 @@ class Storage(dict):
         :param string category: The category to distinguish
                                 different storage namespaces
     """
+
     def __init__(self, category):
         self.category = category
 
@@ -107,6 +97,11 @@ class Storage(dict):
         if not worker:
             worker = self.category
         return db_worker.fetch_orders(worker)
+
+    @staticmethod
+    def clear_worker_data(worker):
+        db_worker.clear_orders(worker)
+        db_worker.clear(worker)
 
 
 class DatabaseWorker(threading.Thread):
@@ -287,10 +282,10 @@ class DatabaseWorker(threading.Thread):
 
 
 # Derive sqlite file directory
-data_dir = user_data_dir(appname, appauthor)
+data_dir = user_data_dir(APP_NAME, AUTHOR)
 sqlDataBaseFile = os.path.join(data_dir, storageDatabase)
 
 # Create directory for sqlite file
-mkdir_p(data_dir)
+helper.mkdir(data_dir)
 
 db_worker = DatabaseWorker()

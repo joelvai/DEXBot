@@ -1,15 +1,28 @@
 from math import fabs
 from collections import Counter
 from bitshares.amount import Amount
-from dexbot.basestrategy import BaseStrategy
+from dexbot.basestrategy import BaseStrategy, ConfigElement
 from dexbot.errors import InsufficientFundsError
 
 
 class Strategy(BaseStrategy):
+    """ Walls strategy
     """
-    Walls strategy
-    This strategy simply places a buy and a sell wall
-    """
+
+    @classmethod
+    def configure(cls, return_base_config=True):
+        return BaseStrategy.configure(return_base_config) + [
+            ConfigElement("spread", "float", 5, "Spread",
+                          "The spread between sell and buy as percentage", (0, 100, 2, '%')),
+            ConfigElement("threshold", "float", 5, "Threshold",
+                          "Percentage the feed has to move before we change orders", (0, 100, 2, '%')),
+            ConfigElement("buy", "float", 0, "Buy",
+                          "The default amount to buy", (0, None, 8, '')),
+            ConfigElement("sell", "float", 0, "Sell",
+                          "The default amount to sell", (0, None, 8, '')),
+            ConfigElement("blocks", "int", 20, "Block num",
+                          "Number of blocks to wait before re-calculating", (0, 10000, ''))
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -40,7 +53,7 @@ class Strategy(BaseStrategy):
         self.log.info("Replacing orders")
 
         # Canceling orders
-        self.cancelall()
+        self.cancel_all()
 
         # Target
         target = self.worker.get("target", {})
@@ -105,7 +118,7 @@ class Strategy(BaseStrategy):
         orders = self.orders
 
         # Test if still 2 orders in the market (the walls)
-        if len(orders) < 2 and len(orders) > 0:
+        if 0 < len(orders) < 2:
             if (
                 not self["insufficient_buy"] and
                 not self["insufficient_sell"]
