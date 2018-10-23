@@ -8,8 +8,6 @@ matrix:
     language: generic
     before_install:
     - brew update
-    - python --version
-    - brew upgrade python
 install:
   - make install
 script:
