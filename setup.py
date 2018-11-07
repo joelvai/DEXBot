@@ -7,15 +7,15 @@ from distutils.command import build as build_module
 cmd_class = {}
 console_scripts = ['dexbot-cli = dexbot.cli:main']
 install_requires = [
-    'bitshares==0.1.22',
-    'uptick>=0.1.9',
+    'bitshares==0.2.1',
+    'uptick==0.2.0',
     'click',
     'sqlalchemy',
     'ruamel.yaml>=0.15.37',
     'sdnotify',
     'appdirs>=1.4.3',
     'pycryptodomex==3.6.4',
-    'websocket-client==0.48.0'
+    'websocket-client==0.53.0'
 ]
 
 
