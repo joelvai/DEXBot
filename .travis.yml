@@ -13,6 +13,8 @@ install:
   - pip install pyinstaller
   - pip install --upgrade setuptools
   - make install
+before_script:
+  - "flake8 ."
 script:
   - echo "@TODO - Running tests..."
   - pyinstaller --distpath dist/$TRAVIS_OS_NAME gui.spec
