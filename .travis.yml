@@ -14,7 +14,7 @@ install:
   - pip install --upgrade setuptools
   - make install
 before_script:
-  - "flake8 ."
+  - "flake8 --max-line-length=120 --statistics ."
 script:
   - echo "@TODO - Running tests..."
   - pyinstaller --distpath dist/$TRAVIS_OS_NAME gui.spec
