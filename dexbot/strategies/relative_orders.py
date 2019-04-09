@@ -1,8 +1,8 @@
 import math
 from datetime import datetime, timedelta
 
-from dexbot.strategies.base import StrategyBase, ConfigElement, DetailElement
-from dexbot.qt_queue.idle_queue import idle_add
+from .base import StrategyBase
+from .config_parts.relative_config import RelativeConfig
 
 
 class Strategy(StrategyBase):
@@ -11,52 +11,11 @@ class Strategy(StrategyBase):
 
     @classmethod
     def configure(cls, return_base_config=True):
-        return StrategyBase.configure(return_base_config) + [
-            ConfigElement('amount', 'float', 1, 'Amount',
-                          'Fixed order size, expressed in quote asset, unless "relative order size" selected',
-                          (0, None, 8, '')),
-            ConfigElement('relative_order_size', 'bool', False, 'Relative order size',
-                          'Amount is expressed as a percentage of the account balance of quote/base asset', None),
-            ConfigElement('spread', 'float', 5, 'Spread',
-                          'The percentage difference between buy and sell', (0, 100, 2, '%')),
-            ConfigElement('dynamic_spread', 'bool', False, 'Dynamic spread',
-                          'Enable dynamic spread which overrides the spread field', None),
-            ConfigElement('market_depth_amount', 'float', 0, 'Market depth',
-                          'From which depth will market spread be measured? (QUOTE amount)',
-                          (0.00000001, 1000000000, 8, '')),
-            ConfigElement('dynamic_spread_factor', 'float', 1, 'Dynamic spread factor',
-                          'How many percent will own spread be compared to market spread?',
-                          (0.01, 1000, 2, '%')),
-            ConfigElement('center_price', 'float', 0, 'Center price',
-                          'Fixed center price expressed in base asset: base/quote', (0, None, 8, '')),
-            ConfigElement('center_price_dynamic', 'bool', True, 'Measure center price from market orders',
-                          'Estimate the center from closest opposite orders or from a depth', None),
-            ConfigElement('center_price_depth', 'float', 0, 'Measurement depth',
-                          'Cumulative quote amount from which depth center price will be measured',
-                          (0.00000001, 1000000000, 8, '')),
-            ConfigElement('center_price_offset', 'bool', False, 'Center price offset based on asset balances',
-                          'Automatically adjust orders up or down based on the imbalance of your assets', None),
-            ConfigElement('manual_offset', 'float', 0, 'Manual center price offset',
-                          "Manually adjust orders up or down. "
-                          "Works independently of other offsets and doesn't override them", (-50, 100, 2, '%')),
-            ConfigElement('reset_on_partial_fill', 'bool', True, 'Reset orders on partial fill',
-                          'Reset orders when buy or sell order is partially filled', None),
-            ConfigElement('partial_fill_threshold', 'float', 30, 'Fill threshold',
-                          'Order fill threshold to reset orders', (0, 100, 2, '%')),
-            ConfigElement('reset_on_price_change', 'bool', False, 'Reset orders on center price change',
-                          'Reset orders when center price is changed more than threshold', None),
-            ConfigElement('price_change_threshold', 'float', 2, 'Price change threshold',
-                          'Define center price threshold to react on', (0, 100, 2, '%')),
-            ConfigElement('custom_expiration', 'bool', False, 'Custom expiration',
-                          'Override order expiration time to trigger a reset', None),
-            ConfigElement('expiration_time', 'int', 157680000, 'Order expiration time',
-                          'Define custom order expiration time to force orders reset more often, seconds',
-                          (30, 157680000, ''))
-        ]
+        return RelativeConfig.configure(return_base_config)
 
     @classmethod
     def configure_details(cls, include_default_tabs=True):
-        return StrategyBase.configure_details(include_default_tabs) + []
+        return RelativeConfig.configure_details(include_default_tabs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -75,18 +34,31 @@ class Strategy(StrategyBase):
         self.error_onAccount = self.error
 
         # Market status
-        self.market_center_price = self.get_market_center_price(suppress_errors=True)
         self.empty_market = False
 
+        # Get market center price from Bitshares
+        self.market_center_price = self.get_market_center_price(suppress_errors=True)
+
+        # Set external price source, defaults to False if not found
+        self.external_feed = self.worker.get('external_feed', False)
+        self.external_price_source = self.worker.get('external_price_source', 'gecko')
+
+        if self.external_feed:
+            # Get external center price from given source
+            self.external_market_center_price = self.get_external_market_center_price(self.external_price_source)
+
         if not self.market_center_price:
+            # Bitshares has no center price making it an empty market or one that has only one sided orders
             self.empty_market = True
 
         # Worker parameters
         self.is_center_price_dynamic = self.worker['center_price_dynamic']
+
         if self.is_center_price_dynamic:
             self.center_price = None
             self.center_price_depth = self.worker.get('center_price_depth', 0)
         else:
+            # Use manually set center price
             self.center_price = self.worker["center_price"]
 
         self.is_relative_order_size = self.worker.get('relative_order_size', False)
@@ -127,7 +99,7 @@ class Strategy(StrategyBase):
             return
 
         # Check if market has center price when using dynamic center price
-        if self.empty_market and (self.is_center_price_dynamic or self.dynamic_spread):
+        if not self.external_feed and self.empty_market and (self.is_center_price_dynamic or self.dynamic_spread):
             self.log.info('Market is empty and using dynamic market parameters. Waiting for market change...')
             return
 
@@ -153,25 +125,35 @@ class Strategy(StrategyBase):
         self.counter += 1
 
     @property
-    def amount_quote(self):
+    def amount_to_sell(self):
         """ Get quote amount, calculate if order size is relative
         """
+        amount = self.order_size
         if self.is_relative_order_size:
             quote_balance = float(self.balance(self.market["quote"]))
-            return quote_balance * (self.order_size / 100)
-        else:
-            return self.order_size
+            amount = quote_balance * (self.order_size / 100)
+
+        # Sell / receive amount should match x2 of minimal possible fraction of asset
+        if (amount < 2 * 10 ** -self.market['quote']['precision'] or
+                amount * self.sell_price < 2 * 10 ** -self.market['base']['precision']):
+            amount = 0
+        return amount
 
     @property
-    def amount_base(self):
+    def amount_to_buy(self):
         """ Get base amount, calculate if order size is relative
         """
+        amount = self.order_size
         if self.is_relative_order_size:
             base_balance = float(self.balance(self.market["base"]))
             # amount = % of balance / buy_price = amount combined with calculated price to give % of balance
-            return base_balance * (self.order_size / 100) / self.buy_price
-        else:
-            return self.order_size
+            amount = base_balance * (self.order_size / 100) / self.buy_price
+
+        # Sell / receive amount should match x2 of minimal possible fraction of asset
+        if (amount < 2 * 10 ** -self.market['quote']['precision'] or
+                amount * self.buy_price < 2 * 10 ** -self.market['base']['precision']):
+            amount = 0
+        return amount
 
     def calculate_order_prices(self):
         # Set center price as None, in case dynamic has not amount given, center price is calculated from market orders
@@ -184,7 +166,12 @@ class Strategy(StrategyBase):
 
         if self.is_center_price_dynamic:
             # Calculate center price from the market orders
-            if self.center_price_depth > 0:
+
+            if self.external_feed:
+                # Try getting center price from external source
+                center_price = self.get_external_market_center_price(self.external_price_source)
+
+            if self.center_price_depth > 0 and not self.external_feed:
                 # Calculate with quote amount if given
                 center_price = self.get_market_center_price(quote_amount=self.center_price_depth)
 
@@ -221,20 +208,20 @@ class Strategy(StrategyBase):
         order_ids = []
         expected_num_orders = 0
 
-        amount_base = self.amount_base
-        amount_quote = self.amount_quote
+        amount_to_buy = self.amount_to_buy
+        amount_to_sell = self.amount_to_sell
 
         # Buy Side
-        if amount_base:
-            buy_order = self.place_market_buy_order(amount_base, self.buy_price, True)
+        if amount_to_buy:
+            buy_order = self.place_market_buy_order(amount_to_buy, self.buy_price, True)
             if buy_order:
                 self.save_order(buy_order)
                 order_ids.append(buy_order['id'])
             expected_num_orders += 1
 
         # Sell Side
-        if amount_quote:
-            sell_order = self.place_market_sell_order(amount_quote, self.sell_price, True)
+        if amount_to_sell:
+            sell_order = self.place_market_sell_order(amount_to_sell, self.sell_price, True)
             if sell_order:
                 self.save_order(sell_order)
                 order_ids.append(sell_order['id'])
@@ -249,9 +236,9 @@ class Strategy(StrategyBase):
             self.update_orders()
 
     def _calculate_center_price(self, suppress_errors=False):
-        ticker = self.market.ticker()
-        highest_bid = ticker.get("highestBid")
-        lowest_ask = ticker.get("lowestAsk")
+        highest_bid = float(self.ticker().get('highestBid'))
+        lowest_ask = float(self.ticker().get('lowestAsk'))
+
         if highest_bid is None or highest_bid == 0.0:
             if not suppress_errors:
                 self.log.critical(
@@ -268,7 +255,7 @@ class Strategy(StrategyBase):
             return None
 
         # Calculate center price between two closest orders on the market
-        return highest_bid['price'] * math.sqrt(lowest_ask['price'] / highest_bid['price'])
+        return highest_bid * math.sqrt(lowest_ask / highest_bid)
 
     def calculate_center_price(self, center_price=None, asset_offset=False, spread=None,
                                order_ids=None, manual_offset=0, suppress_errors=False):
@@ -308,19 +295,23 @@ class Strategy(StrategyBase):
         total = (total_balance['quote'] * center_price) + total_balance['base']
 
         if not total:  # Prevent division by zero
-            balance = 0
+            base_percent = quote_percent = 0.5
         else:
-            # Returns a value between -1 and 1
-            balance = (total_balance['base'] / total) * 2 - 1
+            base_percent = total_balance['base'] / total
+            quote_percent = 1 - base_percent
 
-        if balance < 0:
-            # With less of base asset center price should be offset downward
-            center_price = center_price / math.sqrt(1 + spread * (balance * -1))
-        elif balance > 0:
-            # With more of base asset center price will be offset upwards
-            center_price = center_price * math.sqrt(1 + spread * balance)
+        highest_bid = float(self.ticker().get('highestBid'))
+        lowest_ask = float(self.ticker().get('lowestAsk'))
 
-        return center_price
+        lowest_price = center_price / (1 + spread)
+        highest_price = center_price * (1 + spread)
+
+        # Use highest_bid price if spread-based price is lower. This limits offset aggression.
+        lowest_price = max(lowest_price, highest_bid)
+        # Use lowest_ask price if spread-based price is higher
+        highest_price = min(highest_price, lowest_ask)
+
+        return math.pow(highest_price, base_percent) * math.pow(lowest_price, quote_percent)
 
     @staticmethod
     def calculate_manual_offset(center_price, manual_offset):
@@ -329,13 +320,22 @@ class Strategy(StrategyBase):
             :param float | center_price:
             :param float | manual_offset:
             :return: Center price with manual offset
+
+            Adjust center price by given percent in symmetrical way. Thus, -1% adjustement on BTS:USD market will be
+            same as adjusting +1% on USD:BTS market.
         """
-        return center_price + (center_price * manual_offset)
+        if manual_offset < 0:
+            return center_price / (1 + abs(manual_offset))
+        else:
+            return center_price * (1 + manual_offset)
 
     def check_orders(self, *args, **kwargs):
         """ Tests if the orders need updating
         """
         delta = datetime.now() - self.last_check
+
+        # Store current available balance and balance in orders to the database for profit calculation purpose
+        self.store_profit_estimation_data()
 
         # Only allow to check orders whether minimal time passed
         if delta < timedelta(seconds=self.min_check_interval) and not self.initializing:
@@ -375,6 +375,8 @@ class Strategy(StrategyBase):
 
         # Check center price change when using market center price with reset option on change
         if self.is_reset_on_price_change and self.is_center_price_dynamic:
+            # This doesn't use external price feed because it is not allowed to be active
+            # same time as reset_on_price_change
             spread = self.spread
 
             # Calculate spread if dynamic spread option in use, this calculation includes own orders on the market
@@ -402,37 +404,6 @@ class Strategy(StrategyBase):
 
         if self.view:
             self.update_gui_slider()
+            self.update_gui_profit()
 
         self.last_check = datetime.now()
-
-    # GUI updaters
-    def update_gui_profit(self):
-        # Fixme: profit calculation doesn't work this way, figure out a better way to do this.
-        if self.initial_balance:
-            profit = round((self.orders_balance(None) - self.initial_balance) / self.initial_balance, 3)
-        else:
-            profit = 0
-        idle_add(self.view.set_worker_profit, self.worker_name, float(profit))
-        self['profit'] = profit
-
-    def update_gui_slider(self):
-        ticker = self.market.ticker()
-        latest_price = ticker.get('latest', {}).get('price', None)
-        if not latest_price:
-            return
-
-        order_ids = None
-        orders = self.fetch_orders()
-
-        if orders:
-            order_ids = orders.keys()
-
-        total_balance = self.count_asset(order_ids)
-        total = (total_balance['quote'] * latest_price) + total_balance['base']
-
-        if not total:  # Prevent division by zero
-            percentage = 50
-        else:
-            percentage = (total_balance['base'] / total) * 100
-        idle_add(self.view.set_worker_slider, self.worker_name, percentage)
-        self['slider'] = percentage
