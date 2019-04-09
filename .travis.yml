@@ -10,12 +10,14 @@ matrix:
     before_install:
     - brew update
 install:
+  - pip install flake8
   - pip install pyinstaller
   - pip install --upgrade setuptools
   - make install
 before_script:
-  - flake8
+  - flake8 dexbot
 script:
+  - pip uninstall flake8
   - echo "@TODO - Running tests..."
   - pyinstaller --distpath dist/$TRAVIS_OS_NAME gui.spec
 before_deploy:
