@@ -14,7 +14,13 @@ install:
   - pip install --upgrade setuptools
   - make install
 before_script:
-  - "flake8 --max-line-length=120 --statistics --exclude=./build/lib/dexbot/views/ui/ ./build/lib/dexbot/"
+  - "
+  flake8
+  --max-line-length=120
+  --statistics
+  --exclude=./build/lib/dexbot/views/ui/, ./build/lib/dexbot/resources/icons_rc.py
+  ./build/lib/dexbot/
+  "
 script:
   - echo "@TODO - Running tests..."
   - pyinstaller --distpath dist/$TRAVIS_OS_NAME gui.spec
