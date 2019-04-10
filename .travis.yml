@@ -15,7 +15,8 @@ install:
   - pip install --upgrade setuptools
   - make install
 before_script:
-  - flake8 dexbot
+  # PEP8 linting
+  - make pep-test
 script:
   - pip uninstall flake8
   - echo "@TODO - Running tests..."
