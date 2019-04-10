@@ -16,7 +16,7 @@ install:
   - make install
 before_script:
   # PEP8 linting
-  - python3 -v
+  - python3 --version
   - make pep-test
 script:
   - echo "@TODO - Running tests..."
