@@ -18,7 +18,6 @@ before_script:
   # PEP8 linting
   - make pep-test
 script:
-  - pip uninstall flake8
   - echo "@TODO - Running tests..."
   - pyinstaller --distpath dist/$TRAVIS_OS_NAME gui.spec
 before_deploy:
