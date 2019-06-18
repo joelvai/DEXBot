@@ -11,28 +11,37 @@ environment:
 #        Build                    #
 #---------------------------------#
 
-build: off
-
-configuration: Release
-
 install:
   - SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PATH%;C:\MinGW\bin
   - copy c:\MinGW\bin\mingw32-make.exe c:\MinGW\bin\make.exe
   - copy c:\Python36-x64\python.exe c:\Python36-x64\python3.exe
   - python --version
   - make install
-
-after_test:
   - make package
+  - copy /Y dist\DEXBot-gui.exe installer\windows\msi\DEXBot.exe
   - '7z a DEXBot-gui-win64.zip %APPVEYOR_BUILD_FOLDER%\dist\DEXBot-gui.exe'
+  # Read dexbot version from __init__.py
+  - ps: Get-Content dexbot\__init__.py | Foreach-Object { $var = $_.Split('=');  Set-Variable -Name $var[0] -Value $var[1];  }
+  # Set to version and replace ' with empty character
+  - set ApplicationVersion=%VERSION:'=%
+
+# Visual studio configuration
+configuration:
+- Release
+platform: x86
+build:
+  verbosity: normal
 
 # @TODO: Run tests..
 test_script:
   - "echo tests..."
 
+# Artifacts as relative path to the build folder C:\projects\dexbot
 artifacts:
   - path: DEXBot-gui-win64.zip
-    name: DEXBot-gui-win64.zip
+    name: DEXBot-gui-win64-%ApplicationVersion%.zip
+  - path: installer\windows\bundle\bin\%CONFIGURATION%\DEXBot-installer.exe
+    name: DEXBot-installer-%ApplicationVersion%.exe
 
 #---------------------------------#
 #        Deployment               #
@@ -50,7 +59,7 @@ deploy:
     auth_token:
       secure: 9qvwlVUHFBV4GwMz1Gu2HSnqU8Ex2nv5dsY4mVNCurrb+6ULIoHPgbvJPWTo3qV6
     on:
-      appveyor_repo_tag: true     # deploy on tag push only
+      appveyor_repo_tag: true     # Deploy on tag push only
 
 #---------------------------------#
 #         Notifications           #
