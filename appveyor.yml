@@ -41,7 +41,7 @@ artifacts:
   - path: DEXBot-gui-win64-%ApplicationVersion%.zip
     name: DEXBot-gui-win64-%ApplicationVersion%.zip
   - path: installer\windows\bundle\bin\%CONFIGURATION%\DEXBot-installer-gui-win64-%ApplicationVersion%.exe
-    name: DEXBot-installer-%ApplicationVersion%.exe
+    name: DEXBot-installer-gui-win64-%ApplicationVersion%.exe
 
 #---------------------------------#
 #        Deployment               #
