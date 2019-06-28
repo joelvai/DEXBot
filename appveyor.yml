@@ -12,6 +12,8 @@ environment:
 #---------------------------------#
 
 install:
+  - ps: Start-FileDownload 'https://www.python.org/ftp/python/3.7.3/python-3.7.3.exe'
+  - copy python-3.7.3.exe installer\windows\bundle\prerequisites\python-3.7.3.exe
   - SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PATH%;C:\MinGW\bin
   - copy c:\MinGW\bin\mingw32-make.exe c:\MinGW\bin\make.exe
   - copy c:\Python36-x64\python.exe c:\Python36-x64\python3.exe
@@ -32,6 +34,9 @@ platform: x86
 build:
   verbosity: normal
 
+after_build:
+  - ps: Rename-Item -Path ".\installer\windows\bundle\bin\$env:CONFIGURATION\DEXBot-installer.exe" -NewName "DEXBot-installer-$env:ApplicationVersion.exe"
+
 # @TODO: Run tests..
 test_script:
   - "echo tests..."
@@ -40,7 +45,7 @@ test_script:
 artifacts:
   - path: DEXBot-gui-win64-%ApplicationVersion%.zip
     name: DEXBot-gui-win64-%ApplicationVersion%.zip
-  - path: installer\windows\bundle\bin\%CONFIGURATION%\DEXBot-installer.exe
+  - path: installer\windows\bundle\bin\%CONFIGURATION%\DEXBot-installer-%ApplicationVersion%.exe
     name: DEXBot-installer-%ApplicationVersion%.exe
 
 #---------------------------------#
